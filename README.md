@@ -17,6 +17,7 @@ Book faster, manage smarter. A full-stack flight booking platform with user auth
 
 **Infra**
 - Docker & Docker Compose (frontend, backend, mongo)
+- Kubernetes + Helm (chart-based deployment)
 
 ## Project Structure
 
@@ -36,6 +37,15 @@ Book faster, manage smarter. A full-stack flight booking platform with user auth
 │   │   ├── context/AuthContext.jsx
 │   │   └── Layout/HomeLayout.jsx
 │   └── Dockerfile
+├── flight-booking-chart/          # Helm chart (mongo + backend + frontend)
+│   ├── Chart.yaml
+│   ├── values.yaml
+│   └── templates/
+│       ├── backend-configmap.yaml
+│       ├── backend-secret.yaml
+│       ├── backend.yaml
+│       ├── frontend.yaml
+│       └── mongo.yaml
 └── docker-compose.yml
 ```
 
@@ -148,6 +158,113 @@ This creates (or promotes) a designated admin account. Ensure the correct Mongo 
 | root      | `docker-compose up -d`            | Start all services            |
 | root      | `docker-compose down`             | Stop all services              |
 | root      | `docker-compose logs -f backend`  | Tail backend logs               |
+
+## Kubernetes / Helm Deployment
+
+The app can also run on Kubernetes via the included Helm chart (`flight-booking-chart/`), which deploys MongoDB, the backend, and the frontend as separate Deployments + Services, with backend config/secrets managed via a ConfigMap and Secret.
+
+### Prerequisites
+- [Helm](https://helm.sh) v4.x installed
+- A running cluster (tested with [minikube](https://minikube.sigs.k8s.io/))
+
+### 1. Build images and load into the cluster
+
+If using minikube, build normally on the host, then load images in (no need to build inside minikube's own Docker daemon):
+
+```bash
+cd backend && docker build -t flightbooking:backend . && cd ..
+cd frontend && docker build -t flightbooking:frontend . && cd ..
+
+minikube image load flightbooking:backend
+minikube image load flightbooking:frontend
+minikube image ls | grep flightbooking   # confirm both loaded
+```
+
+### 2. Configure values
+
+Edit `flight-booking-chart/values.yaml` — at minimum, set `frontend.apiBaseUrl` to your real minikube IP:
+
+```bash
+minikube ip
+```
+
+```yaml
+frontend:
+  apiBaseUrl: "http://<minikube-ip>:30001/api"
+```
+
+(Alternatively, override at install/upgrade time with `--set frontend.apiBaseUrl=...` instead of editing the file.)
+
+### 3. Install the chart
+
+```bash
+cd flight-booking-chart
+helm install flight-app .
+```
+
+### 4. Verify the deployment
+
+```bash
+helm list
+helm status flight-app
+kubectl get pods
+kubectl get svc
+```
+
+### 5. Access the app
+
+```bash
+minikube ip
+```
+
+- Frontend: `http://<minikube-ip>:30003`
+- Backend API: `http://<minikube-ip>:30001/api`
+
+### 6. Seed the admin account (Kubernetes)
+
+```bash
+kubectl get pods                                    # get current backend pod name
+kubectl exec -it pod/<backend-pod-name> -- node seedAdmin.js
+```
+
+### 7. Update config / redeploy after changes
+
+Any edit to `values.yaml` or a template requires an `upgrade` (not `install`, which only works the first time):
+
+```bash
+helm upgrade flight-app .
+```
+
+### 8. Useful Helm commands for this project
+
+| Command | Purpose |
+|---|---|
+| `helm install flight-app .` | Install the chart for the first time |
+| `helm upgrade flight-app .` | Apply changes after editing `values.yaml`/templates |
+| `helm upgrade --install flight-app .` | Install if missing, upgrade if it exists (handy in scripts) |
+| `helm list` | List installed releases |
+| `helm status flight-app` | Show current release status |
+| `helm get values flight-app -a` | Show the full computed values currently applied |
+| `helm get manifest flight-app` | Show the actual rendered Kubernetes YAML applied to the cluster |
+| `helm template .` | Render templates locally without installing (sanity check) |
+| `helm install flight-app . --dry-run --debug` | Simulate an install without applying anything |
+| `helm lint .` | Check the chart for structural/syntax issues |
+| `helm history flight-app` | Show revision history |
+| `helm rollback flight-app <revision>` | Roll back to a previous revision |
+| `helm uninstall flight-app` | Remove the release (note: **no chart path**, name only) |
+
+### 9. Cleanup
+
+```bash
+helm uninstall flight-app
+```
+
+Note: the MongoDB PVC is **not** deleted automatically (by design, to protect data). Only remove it if you want a completely clean slate:
+
+```bash
+kubectl get pvc
+kubectl delete pvc mongo-pvc
+```
 
 ## License
 

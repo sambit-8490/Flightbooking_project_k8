@@ -1,0 +1,26 @@
+mongo:
+  image: mongo:7
+  port: 27017
+  storage: 1Gi
+
+backend:
+  image: flightbooking:backend
+  imagePullPolicy: IfNotPresent
+  port: 3000
+  nodePort: 30001
+  env:
+    MONGO_URL: "mongodb://mongo-service:27017/airplane-db"
+    PORT: "3000"
+    JWT_EXPIRES_IN: "7d"
+  secret:
+    # echo -n 'your-super-secret-jwt-key' | base64
+    SECRET_KEY: "eW91ci1zdXBlci1zZWNyZXQtand0LWtleQ=="
+
+frontend:
+  image: flightbooking:frontend
+  imagePullPolicy: IfNotPresent
+  port: 5173
+  nodePort: 30004
+  # Update this once you know the backend's reachable address
+  # (minikube ip, or use the backend Service DNS name if same-cluster calls)
+  apiBaseUrl: "http://minikube-ip:30001/api"
